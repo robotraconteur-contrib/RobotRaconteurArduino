@@ -57,6 +57,8 @@ PROGMEM const char STRCONST_Attributes[] = {"Attributes"};
 #define STRCONST_Attributes_LEN 10
 PROGMEM const char STRCONST_GetRemoteNodeID[] = {"GetRemoteNodeID"};
 #define STRCONST_GetRemoteNodeID_LEN 15
+PROGMEM const char STRCONST_CreateConnection[] = {"CreateConnection"};
+#define STRCONST_CreateConnection_LEN 16
 PROGMEM const char STRCONST_RobotRaconteurServiceIndex[] = {"RobotRaconteurServiceIndex"};
 #define STRCONST_RobotRaconteurServiceIndex_LEN 26
 PROGMEM const char STRCONST_GetRoutedNodes[] = {"GetRoutedNodes"};
@@ -65,15 +67,45 @@ PROGMEM const char STRCONST_GetDetectedNodes[] = {"GetDetectedNodes"};
 #define STRCONST_GetDetectedNodes_LEN 16
 PROGMEM const char STRCONST_GetLocalNodeServices[] = {"GetLocalNodeServices"};
 #define STRCONST_GetLocalNodeServices_LEN 20
+PROGMEM const char STRCONST_GET1[] = {"GET "};
+#define STRCONST_GET1_LEN  4
+PROGMEM const char STRCONST_GET2[] = {"GET\t"};
+#define STRCONST_GET2_LEN  4
+PROGMEM const char STRCONST_HTTP_RESPONSE_1[] = {"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: robotraconteur.robotraconteur.com\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Accept: "};
+#define STRCONST_HTTP_RESPONSE_1_LEN 183
+PROGMEM const char STRCONST_HTTP_RESPONSE_2[] =  {"\r\n\r\n"};
+#define STRCONST_HTTP_RESPONSE_2_LEN 4
+PROGMEM const char STRCONST_HTTP_KEY_UUID[] = {"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"};
+#define STRCONST_HTTP_KEY_UUID_LEN  36
+PROGMEM const char STRCONST_HTTP_SEC_WEBSOCKET_KEY[] = {"Sec-WebSocket-Key:"};
+#define STRCONST_HTTP_SEC_WEBSOCKET_KEY_LEN 18
 
 uint8_t rr_socket::_shared_write_buf[300];
-rr_socket::rr_socket(uint8_t sock) : _client(sock)
+
+void rr_socket::reset()
 {
 	_read_pos=0;
 	_write_length=0;
 	_write_pos=0;
+	_write_stream_pos=0;
+	_is_websocket=false;
+	_is_websocket = false;
+    _recv_websocket_in_frame = false;
+	_recv_websocket_frame_pos = 0;
+	_recv_websocket_enable_mask = false;
+	_recv_websocket_header1_recv = false;
+	_recv_websocket_frame_len= 0 ;
 }
 
+rr_socket::rr_socket(EthernetClient client) : _client(client)
+{
+	reset();
+}
+
+rr_socket::rr_socket() : _client()
+{
+	reset();
+}
 //Functions to read stream
 uint8_t rr_socket::read_uint8()
 {
@@ -96,13 +128,146 @@ uint32_t rr_socket::read_uint32()
 
 void rr_socket::read(uint8_t *buf, size_t size)
 {
-  _client.read(buf,size);
-  _read_pos+=size;
+  size_t read_len=0;
+  int rv;
+  do
+  {
+
+	  rv = _client.read(buf+read_len,size-read_len);
+	  if (rv < 0)
+	  {
+		  Serial.println("Read error");
+		  delay(1000);
+		abort();
+	  }
+	  read_len += rv;
+  }
+  while (read_len < size);
+
+  if (_is_websocket && _recv_websocket_enable_mask)
+  {
+	  for (int i = 0; i < size; i++)
+	  {
+		  buf[i] ^= _recv_websocket_mask[(_recv_websocket_frame_pos + i) % 4];
+	  }
+	  _recv_websocket_frame_pos += size;
+  }
+
+  _read_pos += size;
 }
 
 int16_t rr_socket::read_available()
 {
-  return _client.available();
+	int a=_client.available();
+	if (!_is_websocket)
+	{
+		return a;
+	}
+
+	if (a <= 0 )
+	{
+		return a;
+	}
+
+	 if (_recv_websocket_frame_pos == _recv_websocket_frame_len && _recv_websocket_in_frame)
+	{
+	  //reset for next websocket frame
+	  _recv_websocket_frame_pos = 0;
+	  _recv_websocket_frame_len = 0;
+	  _recv_websocket_in_frame = false;
+	  _recv_websocket_header1_recv = false;
+	}
+
+	if (!_recv_websocket_in_frame)
+	{
+	  //receive websocket frame header
+	  if (!_recv_websocket_header1_recv)
+	  {
+		  if (a < 2) return 0;
+		  _client.read(_recv_websocket_header1, 2);
+		  a -= 2;
+
+		  //TODO: handle pings
+		  uint8_t opcode_recv1 = _recv_websocket_header1[0] & 0x0F;
+		  if (opcode_recv1 != WebSocketOpcode_binary)
+		  {
+			  close();
+			  return 0;
+		  }
+		  _recv_websocket_header1_recv = true;
+	  }
+
+	  if (_recv_websocket_header1_recv)
+	  {
+		  uint8_t l=0;
+		  uint8_t count1 = _recv_websocket_header1[1] & 0x7F;
+		  Serial.print("websocket count1: ");
+		  Serial.println(count1);
+		  if (count1 <= 125)
+		  {
+			  l = 0;
+		  }
+		  else if (count1 == 126)
+		  {
+			  l = 2;
+		  }
+		  else
+		  {
+			  close();
+			  return 0;
+		  }
+
+		  _recv_websocket_enable_mask = (0x80 & _recv_websocket_header1[1]) != 0;
+		  if (_recv_websocket_enable_mask)
+		  {
+			  l += 4;
+		  }
+
+		  uint8_t header2_recv[6];
+		  if (l > 0)
+		  {
+			  if (a < l) return 0;
+			  _client.read(header2_recv, l);
+			  a -= l;
+		  }
+
+		  if (count1 <= 125)
+		  {
+			  _recv_websocket_frame_len = count1;
+			  if (_recv_websocket_enable_mask)
+			  {
+				  Serial.println("Got websocket mask!");
+				  memcpy(_recv_websocket_mask, header2_recv, 4);
+			  }
+		  }
+		  else
+		  {
+			  uint8_t* len1 = (uint8_t*)&_recv_websocket_frame_len;
+			  len1[0] = header2_recv[1];
+			  len1[1] = header2_recv[0];
+
+			  if (_recv_websocket_enable_mask)
+			  {
+				  Serial.println("Got websocket mask!");
+				  memcpy(_recv_websocket_mask, header2_recv + 2, 4);
+			  }
+		  }
+
+
+	  }
+	  _recv_websocket_in_frame = true;
+	  if (a <= 0) return a;
+	}
+	else
+	{
+	  //Truncate available if bigger than frame
+	  if (a > _recv_websocket_frame_len - _recv_websocket_frame_pos)
+	  {
+		  a = _recv_websocket_frame_len - _recv_websocket_frame_pos;
+	  }
+	}
+
+	return a;
 }
 
 uint16_t rr_socket::read_pos()
@@ -136,8 +301,12 @@ void rr_socket::write(const uint8_t* buf, size_t size, bool progmem)
 {
 	if (_write_pos + size > sizeof(_shared_write_buf))
 	{
-		Serial.print("ABORT sent message too large ");
-		Serial.println(_write_pos + size);
+		Serial.print("Message too large! " );
+		Serial.print(size);
+		Serial.print("+");
+		Serial.print(_write_pos);
+		Serial.print(">");
+		Serial.println(sizeof(_shared_write_buf));
 		delay(1000);
 		abort();
 	}
@@ -163,6 +332,102 @@ void rr_socket::write(const uint8_t* buf, size_t size, bool progmem)
 void rr_socket::write_progmem(const void* progmem, size_t size)
 {
   write((const uint8_t*)progmem, size,true);
+}
+
+
+static uint16_t getSnTX_FSR(uint8_t s)
+{
+        uint16_t val, prev;
+
+        prev = W5100.readSnTX_FSR(s);
+        while (1) {
+                val = W5100.readSnTX_FSR(s);
+                if (val == prev) {
+			return val;
+		}
+                prev = val;
+        }
+}
+
+
+static void write_data(uint8_t s, uint16_t data_offset, const uint8_t *data, uint16_t len)
+{
+	uint16_t ptr = W5100.readSnTX_WR(s);
+	ptr += data_offset;
+	uint16_t offset = ptr & W5100.SMASK;
+	uint16_t dstAddr = offset + W5100.SBASE(s);
+
+	if (W5100.hasOffsetAddressMapping() || offset + len <= W5100.SSIZE) {
+		W5100.write(dstAddr, data, len);
+	} else {
+		// Wrap around circular buffer
+		uint16_t size = W5100.SSIZE - offset;
+		W5100.write(dstAddr, data, size);
+		W5100.write(W5100.SBASE(s), data + size, len - size);
+	}
+	ptr += len;
+	W5100.writeSnTX_WR(s, ptr);
+}
+
+void rr_socket::begin_queue_direct()
+{
+	_write_stream_pos=0;
+}
+
+void rr_socket::queue_direct(const uint8_t* buf, size_t size, bool progmem)
+{
+	uint8_t status=0;
+	uint16_t ret=0;
+	uint16_t freesize=0;
+	uint8_t s = _client.getSocketNumber();
+	ret = size;
+	do {
+			SPI.beginTransaction(SPI_ETHERNET_SETTINGS);
+			freesize = getSnTX_FSR(s);
+			status = W5100.readSnSR(s);
+			SPI.endTransaction();
+			if ((status != SnSR::ESTABLISHED) && (status != SnSR::CLOSE_WAIT)) {
+				ret = 0;
+				break;
+			}
+			yield();
+		} while (freesize < ret);
+
+	SPI.beginTransaction(SPI_ETHERNET_SETTINGS);
+	if (!progmem)
+	{
+		write_data(s, _write_stream_pos, (uint8_t *)buf, ret);
+	}
+	else
+	{
+		for (uint16_t i=0; i<size; i++)
+		{
+			uint8_t c = pgm_read_byte(buf + i);
+			write_data(s, _write_stream_pos + i, &c, 1);
+		}
+	}
+	SPI.endTransaction();
+	_write_stream_pos += size;
+}
+
+void rr_socket::send_direct()
+{
+	uint8_t s = _client.getSocketNumber();
+	SPI.beginTransaction(SPI_ETHERNET_SETTINGS);
+	W5100.execCmdSn(s, Sock_SEND);
+	while ( (W5100.readSnIR(s) & SnIR::SEND_OK) != SnIR::SEND_OK ) {
+
+			if ( W5100.readSnSR(s) == SnSR::CLOSED ) {
+				SPI.endTransaction();
+				return;
+			}
+			SPI.endTransaction();
+			yield();
+			SPI.beginTransaction(SPI_ETHERNET_SETTINGS);
+		}
+
+		W5100.writeSnIR(s, SnIR::SEND_OK);
+		SPI.endTransaction();
 }
 
 size_t rr_socket::write_length()
@@ -200,29 +465,31 @@ int16_t rr_socket::send_freesize()
 
 uint8_t rr_socket::send()
 {
-  /*uint8_t statu=status();
-  if ((statu != SnSR::ESTABLISHED) && (statu != SnSR::CLOSE_WAIT))
-  {
-    return  0; 
+	if (_is_websocket)
+	{
+		//Write websocket header
+		if (_write_length <= 125)
+		{
+			uint8_t ws_header[2];
+			ws_header[0] = 0x80 | (WebSocketOpcode_binary & 0xF);
+			ws_header[1] = (uint8_t)_write_length;
+			_client.write(ws_header, 2);
+		}
+		else
+		{
+			uint8_t ws_header[4];
+			ws_header[0] = 0x80 | (WebSocketOpcode_binary & 0xF);
+			ws_header[1] = (uint8_t)126;
+			uint8_t* write_length_8 = (uint8_t*)&_write_length;
+			ws_header[2] = write_length_8[1];
+			ws_header[3] = write_length_8[0];
+			_client.write(ws_header, 4);
+		}
+	}
 
-  }
-
-
-  W5100.execCmdSn(_sock,Sock_SEND);
-  while ( (W5100.readSnIR(_sock) & SnIR::SEND_OK) != SnIR::SEND_OK ) 
-  {
-
-    if ( W5100.readSnSR(_sock) == SnSR::CLOSED )
-    {
-      close();
-      return 0;
-    }
-  }
-
-  W5100.writeSnIR(_sock, SnIR::SEND_OK);
- 
-  return 1;*/
-  return _client.write(_shared_write_buf, _write_length);
+  _client.write(_shared_write_buf, _write_length);
+  write_reset_length();
+  return 1;
 }
 
 void rr_socket::send_flush()
@@ -237,6 +504,13 @@ void rr_socket::close()
   _client.stop();
 }
 
+void rr_socket::enable_websocket_protocol()
+{
+	Serial.println("Enable websocket!");
+	_is_websocket = true;
+}
+
+
 //class RobotRaconteurServerConnection
 
 RobotRaconteurServerConnection::RobotRaconteurServerConnection() : 
@@ -245,31 +519,167 @@ _sock(0)
 
   _port=0;
   message_len=0;
+  started=false;
+  connected=false;
+  send_message_sender_endpoint=0;
+  remote_Endpoint=0;
+  in_http_header = false;
+  http_line_empty = true;
+  http_line_pos = 0;
+  http_is_sec_websocket_key_line = true;
+
+
 }
 
-RobotRaconteurServerConnection::RobotRaconteurServerConnection(uint8_t sock, uint16_t port) :
-_sock(sock)
+RobotRaconteurServerConnection::RobotRaconteurServerConnection(uint16_t port) :
+_sock()
 {
 
   connected=false;
   _port=port;
   message_len=0;
+  started=false;
+  connected=false;
+  send_message_sender_endpoint=0;
+  remote_Endpoint=0;
+  in_http_header = false;
+  http_line_empty = true;
+  http_line_pos = 0;
+  http_is_sec_websocket_key_line = true;
 }
 
 void RobotRaconteurServerConnection::loop()
 {
-  if (!_sock._client.connected())
+
+  //if(_sock._client.status() == 0)
+  /*{
+  Serial.print("Socket status: ");
+  Serial.print(_sock._client.status());
+  Serial.print(" socket: ");
+  Serial.println(_sock._client.getSocketNumber());
+  }*/
+  //Serial.print("Data available: ");
+  //Serial.println(_sock._client.available());
+
+  uint8_t status = _sock._client.status();
+
+
+  if (status != SnSR::ESTABLISHED)
   {
-	  connected=false;
+	connected=false;
+	started=false;
+	_sock._client = EthernetClient();
+	_sock.reset();
     return;
   }
 
-  if (_sock.read_available()==0)
-  {
-    return;
-  }
-  
   int16_t avail=_sock.read_available();
+  
+  if (!started)
+    {
+  	  if (_sock.read_available() < 8)
+  	  {
+  		  return;
+  	  }
+
+  	  char seed[4];
+  	  _sock.read((uint8_t*)seed, 4);
+  	  started = true;
+  	  if (memcmp_P(seed, STRCONST_RRAC, 4) != 0)
+  	  {
+  		  if (memcmp_P(seed, STRCONST_GET1, 4) == 0 || memcmp_P(seed, STRCONST_GET2, 4) == 0)
+  		  {
+  			  in_http_header = true;
+  			  http_key_sha1.clear();
+  		  }
+  		  else
+  		  {
+  			  Serial.println("Get a corrupted message");
+  			  _sock.close();
+  			  return;
+  		  }
+  	  }
+  	  else
+  	  {
+  		message_len=_sock.read_uint32();
+  	  }
+
+   }
+
+  while (in_http_header)
+    {
+  	  //printf("Got http header\n");
+
+  	  if (_sock.read_available() < 1) continue;
+
+  		char a1;
+  		_sock.read((uint8_t*)&a1, 1);
+  		if (a1 == '\n')
+  		{
+  			http_line_pos = 0;
+  			http_is_sec_websocket_key_line = true;
+  			if (http_line_empty)
+  			{
+  				in_http_header = false;
+
+  				for (uint8_t i=0; i<STRCONST_HTTP_KEY_UUID_LEN; i++)
+  				{
+  					uint8_t c = pgm_read_byte(STRCONST_HTTP_KEY_UUID + i);
+  					http_key_sha1.update(&c,1);
+  				}
+
+  				//http_key_sha1.update((const uint8_t*)http_key_uuid, strlen(http_key_uuid));
+  				SPI.beginTransaction(SPI_ETHERNET_SETTINGS);
+  				_sock.queue_direct(STRCONST_HTTP_RESPONSE_1, STRCONST_HTTP_RESPONSE_1_LEN, true);
+  				uint8_t accept_key_buf[20];
+  				char accept_key_buf_b64[29];
+  				http_key_sha1.finalize(accept_key_buf,sizeof(accept_key_buf));
+  				Base64.encode(accept_key_buf_b64, (char*)accept_key_buf, sizeof(accept_key_buf));
+  				_sock.queue_direct((const uint8_t*)accept_key_buf_b64, 28,false);
+  				_sock.queue_direct((const uint8_t*)STRCONST_HTTP_RESPONSE_2, STRCONST_HTTP_RESPONSE_2_LEN,true);
+  				_sock.send_direct();
+  				_sock.enable_websocket_protocol();
+  				_sock.read_resetpos();
+
+  				avail = _sock.read_available();
+  			}
+  			else
+  			{
+  				http_line_empty = true;
+  				_sock.read_resetpos();
+  			}
+  		}
+  		else
+  		{
+
+  			if (a1 != '\r')
+  			{
+  				if (http_line_pos < STRCONST_HTTP_SEC_WEBSOCKET_KEY_LEN)
+  				{
+  					if (memcmp_P(&a1,STRCONST_HTTP_SEC_WEBSOCKET_KEY + http_line_pos,1) != 0)
+  					{
+  						http_is_sec_websocket_key_line=false;
+  					}
+  				}
+  				else
+  				{
+  					if (http_is_sec_websocket_key_line)
+  					{
+  						if (a1 != '\r' && a1 != ' ' && a1 != '\t')
+  						{
+  							http_key_sha1.update(&a1,1);
+  						}
+
+  					}
+
+  				}
+  				http_line_empty = false;
+  			}
+  			http_line_pos++;
+  			_sock.read_resetpos();
+  		}
+    }
+
   
   if (avail > 0)
   {
@@ -308,7 +718,6 @@ void RobotRaconteurServerConnection::read_messagelen()
   //Serial.println(message_len);
   if (strncmp_P((char*)seed,STRCONST_RRAC,4)!=0 || message_len > 1024)
   {
-
     _sock.close();
     flush_message();
     message_len=0;
@@ -383,11 +792,6 @@ void RobotRaconteurServerConnection::process_message()
   _sock.read_uint16();
   _sock.read_uint16();
 
-
-  Serial.print("Sender endpoint: ");
-  Serial.println(SenderEndpoint);
-  Serial.print("Entry count: ");
-  Serial.println(message_EntryCount);
   //write the return message header.  Save the ptr positions for
   //variables that may need to be changed after being written
 
@@ -472,7 +876,6 @@ void RobotRaconteurServerConnection::process_message()
     
     if (entry_EntryType % 2 ==0)
     {
-      Serial.println("Flush...");
       flush_message_entry();
       continue; 
     }
@@ -550,6 +953,11 @@ void RobotRaconteurServerConnection::process_message()
          //Serial.println("Remote node id request");         
        }
        else
+       if (strncmp_P(entry_MemberName,STRCONST_CreateConnection,STRCONST_CreateConnection_LEN)==0)
+       {
+
+       }
+       else
        {
          SetMessageElementError((uint16_t)ProtocolError,STRCONST_RobotRaconteur_ProtocolError,true,STRCONST_RobotRaconteur_ProtocolError_LEN,"",false,0);
        }
@@ -570,9 +978,6 @@ void RobotRaconteurServerConnection::process_message()
       }
       else if (strncmp_P(entry_ServicePath,RobotRaconteurServer::ServicePath,RobotRaconteurServer::ServicePath_len)!=0)
       {
-    	  Serial.print("Got reuest for service path: ");
-    	  Serial.write(entry_ServicePath,entry_ServicePath_len);
-    	  Serial.println();
         SetMessageElementError((uint16_t)ServiceNotFound,STRCONST_RobotRaconteur_ServiceNotFound,true,STRCONST_RobotRaconteur_ServiceNotFound_LEN,NULL,false,0);
         
       }
@@ -670,6 +1075,7 @@ void RobotRaconteurServerConnection::process_message()
           connected=true;
           remote_Endpoint=SenderEndpoint;
           memcpy(remote_NodeID,SenderNodeID,16);
+          Serial.println("Client connected");
         }
         else if (entry_EntryType==PropertyGetReq)
         {
@@ -681,10 +1087,7 @@ void RobotRaconteurServerConnection::process_message()
         }
         else if (entry_EntryType==FunctionCallReq)
         {
-        	Serial.println("Start rr_function_call");
           rr_function_call(this,entry_MemberName,entry_ElementCount);
-          Serial.println("End rr_function_call");
-          
         }
       }
       
@@ -731,9 +1134,7 @@ void RobotRaconteurServerConnection::process_message()
     _sock.write_uint32(meslen);
     //_sock.write_setpos(_sock.write_length());
     //_sock.write_setptr(ptr);
-    Serial.print("Sent message len: ");
-    Serial.println(meslen);
-    
+
     //ptr=_sock.write_getptr();
     _sock.write_setpos(send_message_entry_count_pos);
     _sock.write_uint32(send_message_entry_count);
@@ -1040,6 +1441,7 @@ uint16_t RobotRaconteurServerConnection::send_entry_element_count;
 uint16_t RobotRaconteurServerConnection::send_element_start_pos;
 uint16_t RobotRaconteurServerConnection::send_element_length_pos;
 
+SHA1 RobotRaconteurServerConnection::http_key_sha1;
 
 //class RobotRaconteurServer
 
@@ -1047,8 +1449,8 @@ uint8_t RobotRaconteurServer::NodeID[16];
 char* RobotRaconteurServer::NodeID_str;
 char RobotRaconteurServer::ipstr[24];
 
-RobotRaconteurServer::RobotRaconteurServer(uint16_t port, uint8_t* nodeid, char* nodeid_str,char* service_def, uint32_t service_def_len, char* object_type, uint32_t object_type_len,char* service_path, uint16_t service_path_len)
-    : ethernet_server(port)
+RobotRaconteurServer::RobotRaconteurServer(uint16_t port_, uint8_t* nodeid, char* nodeid_str,char* service_def, uint32_t service_def_len, char* object_type, uint32_t object_type_len,char* service_path, uint16_t service_path_len)
+	: ethernet_server(port_)
 {
   NodeID_str=nodeid_str;
   memcpy(RobotRaconteurServer::NodeID,nodeid,16);
@@ -1057,7 +1459,7 @@ RobotRaconteurServer::RobotRaconteurServer(uint16_t port, uint8_t* nodeid, char*
   for (uint8_t i=0; i<RR_MAX_SERVER_SOCK; i++)
   {
     //Serial.println(i);
-    connections[i]=RobotRaconteurServerConnection(i,port); 
+    connections[i]=RobotRaconteurServerConnection(port_);
   }
   
   ServiceDef=service_def;
@@ -1069,6 +1471,7 @@ RobotRaconteurServer::RobotRaconteurServer(uint16_t port, uint8_t* nodeid, char*
   //
 
   broadcast_send_time=0;
+  port=port_;
 
 
 }
@@ -1076,7 +1479,6 @@ RobotRaconteurServer::RobotRaconteurServer(uint16_t port, uint8_t* nodeid, char*
 void RobotRaconteurServer::start()
 {
 	ethernet_server.begin();
-
 }
 
 void RobotRaconteurServer::startudp()
@@ -1093,11 +1495,21 @@ void RobotRaconteurServer::startudp()
 void RobotRaconteurServer::loop()
 {
 
-  ethernet_server.accept();
   for (uint8_t i=0; i<RR_MAX_SERVER_SOCK; i++)
   {
     connections[i].loop();
   }
+
+  for (uint8_t i=0; i<RR_MAX_SERVER_SOCK; i++)
+  {
+	  if (connections[i]._sock._client.getSocketNumber() >= 4)
+	  {
+		  connections[i]._sock._client = ethernet_server.accept();
+		  connections[i]._sock.reset();
+		  break;
+	  }
+  }
+
   return;
   unsigned long time=millis();
   

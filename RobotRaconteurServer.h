@@ -1,4 +1,6 @@
-//#include <Ethernet.h>
+#include <SHA1.h>
+#include <Base64.h>
+#include "utility/w5100.h"
 
 #ifndef RobotRaconteurServer_h
 #define RobotRaconteurServer_h
@@ -123,14 +125,37 @@ typedef uint16_t rr_MessageErrorType;
 class rr_socket 
 {
 public:
+	enum WebSocketOpcode
+	{
+		WebSocketOpcode_continuation = 0x0,
+		WebSocketOpcode_text = 0x1,
+		WebSocketOpcode_binary = 0x2,
+		WebSocketOpcode_close = 0x8,
+		WebSocketOpcode_ping = 0x9,
+		WebSocketOpcode_pong = 0xA
+	};
+
+public:
   EthernetClient _client;
   uint16_t _write_length;
   uint16_t _write_pos;
   uint16_t _read_pos;
   static uint8_t _shared_write_buf[300];
+  uint16_t _write_stream_pos;
   
+  bool _is_websocket;
+  bool _recv_websocket_in_frame;
+  uint16_t _recv_websocket_frame_pos;
+  uint16_t _recv_websocket_frame_len;
+  uint8_t _recv_websocket_mask[4];
+  bool _recv_websocket_enable_mask;
+  uint8_t _recv_websocket_header1[2];
+  bool _recv_websocket_header1_recv;
+
+
 public:
-  rr_socket(uint8_t sock);
+  rr_socket();
+  rr_socket(EthernetClient client);
   
   //Functions to read stream
   uint8_t read_uint8();
@@ -159,6 +184,13 @@ public:
   
   void close();
 
+  void begin_queue_direct();
+  void queue_direct(const uint8_t* buf, size_t size, bool progmem);
+  void send_direct();
+
+  void enable_websocket_protocol();
+
+  void reset();
 };
 
 
@@ -172,6 +204,12 @@ public:
   uint32_t remote_Endpoint;
   uint8_t remote_NodeID[16];
   bool connected;
+  bool started;
+  bool in_http_header;
+  bool http_line_empty;
+  uint16_t http_line_pos;
+  bool http_is_sec_websocket_key_line;
+  static SHA1 http_key_sha1;
   
 public:
   //message variables
@@ -221,7 +259,7 @@ public:
 public:
   
   RobotRaconteurServerConnection();
-  RobotRaconteurServerConnection(uint8_t sock, uint16_t port);
+  RobotRaconteurServerConnection(uint16_t port);
   
   int8_t ReadNextMessageElement(uint16_t* ElementSize, char** ElementName, uint8_t* ElementName_len,
     uint16_t* ElementType, uint16_t* DataCount, rr_socket** sock);
@@ -283,7 +321,7 @@ public:
   static uint32_t ObjectType_len;
   static char* ServicePath;
   static uint16_t ServicePath_len;
-  
+  uint16_t port;
   
   static void GetLocalNodeServices(RobotRaconteurServerConnection* con);
   

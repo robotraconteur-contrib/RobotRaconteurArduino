@@ -35,23 +35,12 @@ void setup()
   Serial.println("Server started");
   //robotraconteur.loop();
   //robotraconteur.startudp();
-
-  char base64_out[10];
-  char base64_in[] = {"1234"};
-  Base64.encode(base64_out, base64_in, 4);
-
-  SHA1 sha1;
-  sha1.update(base64_out,10);
-  uint8_t sha1_buf[16];
-
-  sha1.finalize(sha1_buf, 16);
-
   robotraconteur.start();
 
 }
 
 unsigned long lastevent=0;
-int loop_count=0;
+uint32_t loop_count=0;
 
 void loop() {
 
