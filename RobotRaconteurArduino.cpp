@@ -13,7 +13,7 @@ running on an Arduino Uno with an ethernet shield.*/
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 PROGMEM const byte nodeid[]={0xc0, 0x39, 0xf3, 0x92, 0xe2, 0xef, 0xff, 0x48, 0x98, 0x2e, 0x88, 0xdd, 0x87, 0xf5, 0x9, 0xab};
 PROGMEM const char nodeid_str[]="c039f392-e2ef-ff48-982e-88dd87f509ab";
-IPAddress ip(192,168,1, 177);
+IPAddress ip(192,168,11, 177);
 
 PROGMEM const char SERVICEDEF[] = {"service arduinotest_interface\nobject obj\nfunction int16 do_something(int16 v)\nevent myevent(int32 val)\nend object\n"};
 #define SERVICEDEF_LEN 114
@@ -34,7 +34,7 @@ void setup()
   Ethernet.begin(mac,ip);
   Serial.println("Server started");
   //robotraconteur.loop();
-  //robotraconteur.startudp();
+  robotraconteur.startudp();
   robotraconteur.start();
 
 }

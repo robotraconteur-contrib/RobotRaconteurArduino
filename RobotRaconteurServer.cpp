@@ -8,7 +8,7 @@
 
 
 PROGMEM const char INDEXDEF[] ={"service RobotRaconteurServiceIndex\nstruct NodeInfo\nfield string NodeName\nfield uint8[16] NodeID\nfield string{int32} ServiceIndexConnectionURL\nend struct\nstruct ServiceInfo\nfield string Name\nfield string RootObjectType\nfield string{int32} RootObjectImplements\nfield string{int32} ConnectionURL\nfield varvalue{string} Attributes\nend struct\nobject ServiceIndex\nfunction ServiceInfo{int32} GetLocalNodeServices()\nfunction NodeInfo{int32} GetRoutedNodes()\nfunction NodeInfo{int32} GetDetectedNodes()\nevent LocalNodeServicesChanged()\nend object"};
-#define INDEXDEF_LEN 556
+#define INDEXDEF_LEN 538
 PROGMEM const char INDEXTYPE[] = {"RobotRaconteurServiceIndex.ServiceIndex"};
 #define INDEXTYPE_LEN 39
 PROGMEM const char STRCONST_RRAC[] = {"RRAC"};
@@ -42,7 +42,7 @@ PROGMEM const char STRCONST_RobotRaconteur_MemberFormatMismatch[] = {"RobotRacon
 //PROGMEM const char STRCONST_RobotRaconteur_MemberNotFound[] = {"RobotRaconteur.MemberNotFound"};
 //#define STRCONST_RobotRaconteur_MemberNotFound_LEN 29
 PROGMEM const char STRCONST_RobotRaconteurServiceIndex_ServiceInfo[] = {"RobotRaconteurServiceIndex.ServiceInfo"};
-#define STRCONST_RobotRaconteurServiceIndex_ServiceInfo_LEN 38;
+#define STRCONST_RobotRaconteurServiceIndex_ServiceInfo_LEN 38
 PROGMEM const char STRCONST_Name[] = {"Name"};
 #define STRCONST_Name_LEN 4
 PROGMEM const char STRCONST_RootObjectType[] = {"RootObjectType"};
@@ -79,6 +79,17 @@ PROGMEM const char STRCONST_HTTP_KEY_UUID[] = {"258EAFA5-E914-47DA-95CA-C5AB0DC8
 #define STRCONST_HTTP_KEY_UUID_LEN  36
 PROGMEM const char STRCONST_HTTP_SEC_WEBSOCKET_KEY[] = {"Sec-WebSocket-Key:"};
 #define STRCONST_HTTP_SEC_WEBSOCKET_KEY_LEN 18
+PROGMEM const char STRCONST_Robot_Raconteur_Node_Discovery_Packet[] = {"Robot Raconteur Node Discovery Packet\n"};
+#define STRCONST_Robot_Raconteur_Node_Discovery_Packet_LEN 38
+PROGMEM const char STRCONST_URL1[] = {"rr+tcp://"};
+#define STRCONST_URL1_LEN 9
+PROGMEM const char STRCONST_URL2[]={":3456/?nodeid="};
+#define STRCONST_URL2_LEN 14
+PROGMEM const char STRCONST_URL3[]={"&service=RobotRaconteurServiceIndex\n"};
+#define STRCONST_URL3_LEN 36
+PROGMEM const char STRCONST_URL4[]={"&service="};
+#define STRCONST_URL4_LEN 9
+
 
 uint8_t rr_socket::_shared_write_buf[300];
 
@@ -201,8 +212,6 @@ int16_t rr_socket::read_available()
 	  {
 		  uint8_t l=0;
 		  uint8_t count1 = _recv_websocket_header1[1] & 0x7F;
-		  Serial.print("websocket count1: ");
-		  Serial.println(count1);
 		  if (count1 <= 125)
 		  {
 			  l = 0;
@@ -236,7 +245,6 @@ int16_t rr_socket::read_available()
 			  _recv_websocket_frame_len = count1;
 			  if (_recv_websocket_enable_mask)
 			  {
-				  Serial.println("Got websocket mask!");
 				  memcpy(_recv_websocket_mask, header2_recv, 4);
 			  }
 		  }
@@ -248,7 +256,6 @@ int16_t rr_socket::read_available()
 
 			  if (_recv_websocket_enable_mask)
 			  {
-				  Serial.println("Got websocket mask!");
 				  memcpy(_recv_websocket_mask, header2_recv + 2, 4);
 			  }
 		  }
@@ -301,12 +308,7 @@ void rr_socket::write(const uint8_t* buf, size_t size, bool progmem)
 {
 	if (_write_pos + size > sizeof(_shared_write_buf))
 	{
-		Serial.print("Message too large! " );
-		Serial.print(size);
-		Serial.print("+");
-		Serial.print(_write_pos);
-		Serial.print(">");
-		Serial.println(sizeof(_shared_write_buf));
+		Serial.println("Message too large! " );
 		delay(1000);
 		abort();
 	}
@@ -488,6 +490,8 @@ uint8_t rr_socket::send()
 	}
 
   _client.write(_shared_write_buf, _write_length);
+  _client.flush();
+
   write_reset_length();
   return 1;
 }
@@ -506,7 +510,6 @@ void rr_socket::close()
 
 void rr_socket::enable_websocket_protocol()
 {
-	Serial.println("Enable websocket!");
 	_is_websocket = true;
 }
 
@@ -630,7 +633,7 @@ void RobotRaconteurServerConnection::loop()
 
   				//http_key_sha1.update((const uint8_t*)http_key_uuid, strlen(http_key_uuid));
   				SPI.beginTransaction(SPI_ETHERNET_SETTINGS);
-  				_sock.queue_direct(STRCONST_HTTP_RESPONSE_1, STRCONST_HTTP_RESPONSE_1_LEN, true);
+  				_sock.queue_direct((const uint8_t*)STRCONST_HTTP_RESPONSE_1, STRCONST_HTTP_RESPONSE_1_LEN, true);
   				uint8_t accept_key_buf[20];
   				char accept_key_buf_b64[29];
   				http_key_sha1.finalize(accept_key_buf,sizeof(accept_key_buf));
@@ -911,9 +914,15 @@ void RobotRaconteurServerConnection::process_message()
     
     uint8_t is_any_nodeid=true;
     for (int j=0; j<16; j++) {if (ReceiverNodeID[j]!=0) {is_any_nodeid=false;}}
-    
+
     uint8_t is_my_nodeid=true;
-    for (int j=0; j<16; j++) {if (ReceiverNodeID[j]!=pgm_read_byte(RobotRaconteurServer::NodeID+j)) {is_my_nodeid=false;}}
+    for (int j=0; j<16; j++)
+    {
+    	if (ReceiverNodeID[j]!=pgm_read_byte(RobotRaconteurServer::NodeID+j))
+    	{
+    		is_my_nodeid=false;
+    	}
+    }
 
     if ((entry_EntryType<=500 && (!is_any_nodeid && !is_my_nodeid)) || (entry_EntryType > 500 && !is_my_nodeid))
     {
@@ -969,12 +978,51 @@ void RobotRaconteurServerConnection::process_message()
       if (strncmp_P(entry_ServicePath,STRCONST_RobotRaconteurServiceIndex,26)==0)
       {
         
-        StartWriteMessageElement(STRCONST_servicedef,true, STRCONST_servicedef_LEN,rr_string_t,NULL,false,0,INDEXDEF_LEN,&sock);
-        _sock.write_progmem(INDEXDEF,INDEXDEF_LEN);
-        EndWriteMessageElement();
+    	//INDEXDEF won't fit in send buffer, do some workarounds...
+    	  uint16_t messagelen = _sock.write_length() + 16 + STRCONST_servicedef_LEN+INDEXDEF_LEN + 16 + STRCONST_attributes_LEN;
+    	  uint16_t entrylen=messagelen-send_entry_start_pos;
+    	  _sock.write_setpos(send_message_length_pos);
+    	  _sock.write_uint32(messagelen);
+    	  _sock.write_setpos(send_message_entry_count_pos);
+    	  _sock.write_uint32(1);
+    	  _sock.write_setpos(send_entry_length_pos);
+    	  _sock.write_uint32(entrylen);
+    	  _sock.write_setpos(send_entry_element_count_pos);
+    	  _sock.write_uint16(2);
+    	  _sock.write_setpos(_sock.write_length());
+    	  _sock.send();
+
+        //StartWriteMessageElement(STRCONST_servicedef,true, STRCONST_servicedef_LEN,rr_string_t,NULL,false,0,INDEXDEF_LEN,&sock);
+        //_sock.write_progmem(INDEXDEF,INDEXDEF_LEN);
+        //EndWriteMessageElement();
+    	_sock.write_reset_length();
+    	_sock.write_uint32(16 + STRCONST_servicedef_LEN+INDEXDEF_LEN);
+		_sock.write_uint16(STRCONST_servicedef_LEN);
+		_sock.write((const uint8_t*)STRCONST_servicedef,STRCONST_servicedef_LEN,true);
+		_sock.write_uint16(rr_string_t);
+		_sock.write_uint16(0);
+		_sock.write_uint16(0);
+		_sock.write_uint32(INDEXDEF_LEN);
+    	_sock.send();
+    	_sock.begin_queue_direct();
+    	_sock.queue_direct((const uint8_t*)INDEXDEF,INDEXDEF_LEN,true);
+    	_sock.send_direct();
+        //StartWriteMessageElement(STRCONST_attributes,true,STRCONST_attributes_LEN,rr_dictionary_t,NULL,false,0,0,&sock);
+        //EndWriteMessageElement();
+    	_sock.write_reset_length();
+        _sock.write_uint32(16 + STRCONST_attributes_LEN);
+        _sock.write_uint16(STRCONST_attributes_LEN);
+        _sock.write((const uint8_t*)STRCONST_attributes,STRCONST_attributes_LEN,true);
+        _sock.write_uint16(rr_dictionary_t);
+        _sock.write_uint16(0);
+        _sock.write_uint16(0);
+        _sock.write_uint32(0);
+        _sock.send();
         
-        StartWriteMessageElement(STRCONST_attributes,true,STRCONST_attributes_LEN,rr_dictionary_t,NULL,false,0,0,&sock);
-        EndWriteMessageElement();
+        flush_message();
+        message_len=0;
+        return;
+
       }
       else if (strncmp_P(entry_ServicePath,RobotRaconteurServer::ServicePath,RobotRaconteurServer::ServicePath_len)!=0)
       {
@@ -1033,7 +1081,10 @@ void RobotRaconteurServerConnection::process_message()
           }
           else if (strncmp_P(entry_MemberName,STRCONST_GetLocalNodeServices,20)==0)
           {
-            RobotRaconteurServer::GetLocalNodeServices(this);
+            GetLocalNodeServices();
+            flush_message();
+            message_len=0;
+            return;
           }        
           else
           {
@@ -1445,7 +1496,7 @@ SHA1 RobotRaconteurServerConnection::http_key_sha1;
 
 //class RobotRaconteurServer
 
-uint8_t RobotRaconteurServer::NodeID[16];
+uint8_t* RobotRaconteurServer::NodeID;
 char* RobotRaconteurServer::NodeID_str;
 char RobotRaconteurServer::ipstr[24];
 
@@ -1453,7 +1504,7 @@ RobotRaconteurServer::RobotRaconteurServer(uint16_t port_, uint8_t* nodeid, char
 	: ethernet_server(port_)
 {
   NodeID_str=nodeid_str;
-  memcpy(RobotRaconteurServer::NodeID,nodeid,16);
+  NodeID=nodeid;
   
   //Serial.println("huh?");
   for (uint8_t i=0; i<RR_MAX_SERVER_SOCK; i++)
@@ -1510,7 +1561,7 @@ void RobotRaconteurServer::loop()
 	  }
   }
 
-  return;
+
   unsigned long time=millis();
   
   if (time < ULONG_MAX/2 && broadcast_send_time > ULONG_MAX/2)
@@ -1536,6 +1587,16 @@ void RobotRaconteurServer::loop()
   }
 }
 
+static void udp_write_progmem(EthernetUDP& Udp, const void* ptr, size_t len)
+{
+	const uint8_t* ptr2 = (uint8_t*)ptr;
+	for(size_t i = 0; i<len; i++)
+	{
+		uint8_t c = pgm_read_byte(ptr+i);
+		Udp.write(c);
+	}
+}
+
 void RobotRaconteurServer::SendAnnouncePacket()
 {
   
@@ -1545,85 +1606,111 @@ void RobotRaconteurServer::SendAnnouncePacket()
  IPAddress broadcastip(255,255,255,255);
 
  //Udp.beginMulticast(broadcastip,48653);
- int res;// = Udp.beginPacket(broadcastip, 48653);
- Serial.println(res);
+ int res = Udp.beginPacket(broadcastip, 48653);
  if (res == 0)
  {
-	 Serial.println("No socket available");
 	 return;
  }
  uint16_t pos=0;
- Udp.write((const uint8_t*)"Robot Raconteur Node Discovery Packet\n",38);
- /*Udp.write((const uint8_t*)NodeID_str,strlen(NodeID_str));
+ udp_write_progmem(Udp,STRCONST_Robot_Raconteur_Node_Discovery_Packet,STRCONST_Robot_Raconteur_Node_Discovery_Packet_LEN);
+ udp_write_progmem(Udp,NodeID_str,strlen_P(NodeID_str));
  Udp.write((const uint8_t*)"\n",1);
- Udp.write((const uint8_t*)"rr+tcp://",10);
+ udp_write_progmem(Udp,STRCONST_URL1,STRCONST_URL1_LEN);
  Udp.write((const uint8_t*)ipstr,strlen(ipstr));
- Udp.write((const uint8_t*)":3456/?nodeid=",14);
- Udp.write((const uint8_t*)NodeID_str,strlen(NodeID_str));
- Udp.write((const uint8_t*)"&service=RobotRaconteurServiceIndex\n",29);*/
- //Udp.endPacket();
- Serial.println("Sent UDP packet");
-  
+ udp_write_progmem(Udp,STRCONST_URL2,STRCONST_URL2_LEN);
+ udp_write_progmem(Udp,NodeID_str,strlen_P(NodeID_str));
+ udp_write_progmem(Udp,STRCONST_URL3,STRCONST_URL3_LEN);
+ Udp.endPacket();
 }
 
-void RobotRaconteurServer::GetLocalNodeServices(RobotRaconteurServerConnection* con)
+void RobotRaconteurServerConnection::GetLocalNodeServices()
 {
   //Assemble the url
-  char* str1="tcp://";
-  char* str2=":3456/[";
-  char* str3="]/";
-  
-  uint16_t strl=6+7+2+strlen(NodeID_str) + strlen(ipstr) + ServicePath_len;
-  
-  
-  rr_socket* _sock;
-  
-  con->StartWriteMessageElement(STRCONST_return,true,STRCONST_return_LEN,rr_vector_t,NULL,false,0,1,&_sock);
-  
+
+  uint16_t strl=STRCONST_URL1_LEN+STRCONST_URL2_LEN+STRCONST_URL4_LEN+strlen_P(RobotRaconteurServer::NodeID_str) + strlen(RobotRaconteurServer::ipstr) + RobotRaconteurServer::ServicePath_len;
+
+  uint16_t element_data_len =16+1+STRCONST_RobotRaconteurServiceIndex_ServiceInfo_LEN
+		  /**/+16+STRCONST_Name_LEN+RobotRaconteurServer::ServicePath_len/**/+16+STRCONST_RootObjectType_LEN+STRCONST_arduinotest_interface_obj_LEN
+		  /**/+16+STRCONST_RootObjectImplements_LEN/**/+16+STRCONST_ConnectionURL_LEN+16+1+strl/**/+16+STRCONST_Attributes_LEN;
+
+  uint16_t messagelen = _sock.write_length() + 16 + STRCONST_return_LEN + element_data_len;
+  uint16_t entrylen=messagelen-send_entry_start_pos;
+  _sock.write_setpos(send_message_length_pos);
+  _sock.write_uint32(messagelen);
+  _sock.write_setpos(send_message_entry_count_pos);
+  _sock.write_uint32(1);
+  _sock.write_setpos(send_entry_length_pos);
+  _sock.write_uint32(entrylen);
+  _sock.write_setpos(send_entry_element_count_pos);
+  _sock.write_uint16(1);
+  _sock.write_setpos(_sock.write_length());
+  _sock.send();
+
+  //StartWriteMessageElement(STRCONST_return,true,STRCONST_return_LEN,rr_vector_t,NULL,false,0,1,&_sock);
+
   //Write out the Robot Raconteur structure manually because the message element code
   //doesn't support nested message elements
   
   //uint16_t struct_start_pos=_sock->write_length();
   //uint16_t struct_len_pos=_sock->write_getpos();
   
+  _sock.write_reset_length();
+  _sock.write_uint32(16 + STRCONST_return_LEN + element_data_len);
+  _sock.write_uint16(STRCONST_return_LEN);
+  _sock.write((const uint8_t*)STRCONST_return,STRCONST_return_LEN,true);
+  _sock.write_uint16(rr_vector_t);
+  _sock.write_uint16(0);
+  _sock.write_uint16(0);
+  _sock.write_uint32(1);
+  _sock.send();
+
   //Write out the first entry in the vector (the only entry)
-  _sock->write_uint32(16+4+ServicePath_len/**/+16+14+25/**/+16+20/**/+16+13+16+1+strl/**/+16+10 );
-  _sock->write_uint16(1);
-  _sock->write((const uint8_t*)"0",false,1);
-  _sock->write_uint16(rr_structure_t);
-  _sock->write_uint16(38);
-  _sock->write((const uint8_t*)STRCONST_RobotRaconteurServiceIndex_ServiceInfo,38,true);
-  _sock->write_uint16(0);
-  _sock->write_uint32(5);
+
+  _sock.write_reset_length();
+  _sock.write_uint32(element_data_len);
+  _sock.write_uint16(1);
+  _sock.write((const uint8_t*)"0",1,false);
+  _sock.write_uint16(rr_structure_t);
+  _sock.write_uint16(38);
+  _sock.write((const uint8_t*)STRCONST_RobotRaconteurServiceIndex_ServiceInfo,STRCONST_RobotRaconteurServiceIndex_ServiceInfo_LEN,true);
+  _sock.write_uint16(0);
+  _sock.write_uint32(5);
+  _sock.send();
   
   //Write out the service name
-  _sock->write_uint32(16+4+11);
-  _sock->write_uint16(4);
-  _sock->write((const uint8_t*)STRCONST_Name,STRCONST_Name_LEN,true);
-  _sock->write_uint16(rr_string_t);
-  _sock->write_uint16(0);
-  _sock->write_uint16(0);
-  _sock->write_uint32(ServicePath_len);
-  _sock->write((const uint8_t*)ServicePath,ServicePath_len,true);
+  _sock.write_reset_length();
+  _sock.write_uint32(16+STRCONST_Name_LEN+RobotRaconteurServer::ServicePath_len);
+  _sock.write_uint16(STRCONST_Name_LEN);
+  _sock.write((const uint8_t*)STRCONST_Name,STRCONST_Name_LEN,true);
+  _sock.write_uint16(rr_string_t);
+  _sock.write_uint16(0);
+  _sock.write_uint16(0);
+  _sock.write_uint32(RobotRaconteurServer::ServicePath_len);
+  _sock.write((const uint8_t*)RobotRaconteurServer::ServicePath,RobotRaconteurServer::ServicePath_len,true);
+  _sock.send();
   
   //Write out the RootObjectType
-  _sock->write_uint32(16+14+25);
-  _sock->write_uint16(14);
-  _sock->write((const uint8_t*)STRCONST_RootObjectType,STRCONST_RootObjectType_LEN,true);
-  _sock->write_uint16(rr_string_t);
-  _sock->write_uint16(0);
-  _sock->write_uint16(0);
-  _sock->write_uint32(25);
-  _sock->write((const uint8_t*)STRCONST_arduinotest_interface_obj,STRCONST_arduinotest_interface_obj_LEN,true);
-    
+  _sock.write_reset_length();
+  _sock.write_uint32(16+STRCONST_RootObjectType_LEN+STRCONST_arduinotest_interface_obj_LEN);
+  _sock.write_uint16(STRCONST_RootObjectType_LEN);
+  _sock.write((const uint8_t*)STRCONST_RootObjectType,STRCONST_RootObjectType_LEN,true);
+  _sock.write_uint16(rr_string_t);
+  _sock.write_uint16(0);
+  _sock.write_uint16(0);
+  _sock.write_uint32(STRCONST_arduinotest_interface_obj_LEN);
+  _sock.write((const uint8_t*)STRCONST_arduinotest_interface_obj,STRCONST_arduinotest_interface_obj_LEN,true);
+  _sock.send();
+
   //Write out the RootObjectImplements
-  _sock->write_uint32(16+20);
-  _sock->write_uint16(20);
-  _sock->write((const uint8_t*)STRCONST_RootObjectImplements,STRCONST_RootObjectImplements_LEN,true);
-  _sock->write_uint16(rr_dictionary_t);
-  _sock->write_uint16(0);
-  _sock->write_uint16(0);
-  _sock->write_uint32(0);
+  _sock.write_reset_length();
+  _sock.write_uint32(16+STRCONST_RootObjectImplements_LEN);
+  _sock.write_uint16(STRCONST_RootObjectImplements_LEN);
+  _sock.write((const uint8_t*)STRCONST_RootObjectImplements,STRCONST_RootObjectImplements_LEN,true);
+  _sock.write_uint16(rr_vector_t);
+  _sock.write_uint16(0);
+  _sock.write_uint16(0);
+  _sock.write_uint32(0);
+  _sock.send();
     
   //Write out the ConnectionURL field
   
@@ -1631,40 +1718,45 @@ void RobotRaconteurServer::GetLocalNodeServices(RobotRaconteurServerConnection* 
   
   
   //Write out the vector header
-  _sock->write_uint32(16+13+16+1+strl);
-  _sock->write_uint16(13);
-  _sock->write((const uint8_t*)STRCONST_ConnectionURL,STRCONST_ConnectionURL_LEN,true);
-  _sock->write_uint16(rr_vector_t);
-  _sock->write_uint16(0);
-  _sock->write_uint16(0);
-  _sock->write_uint32(1);
+  _sock.write_reset_length();
+  _sock.write_uint32(16+STRCONST_ConnectionURL_LEN+16+1+strl);
+  _sock.write_uint16(STRCONST_ConnectionURL_LEN);
+  _sock.write((const uint8_t*)STRCONST_ConnectionURL,STRCONST_ConnectionURL_LEN,true);
+  _sock.write_uint16(rr_vector_t);
+  _sock.write_uint16(0);
+  _sock.write_uint16(0);
+  _sock.write_uint32(1);
+  _sock.send();
   
   //Write out the connection url
-  _sock->write_uint32(16+1+strl);
-  _sock->write_uint16(1);
-  _sock->write((const uint8_t*)"0",1,false);
-  _sock->write_uint16(rr_string_t);
-  _sock->write_uint16(0);
-  _sock->write_uint16(0);
-  _sock->write_uint32(strl);
-  _sock->write((const uint8_t*)str1,6,false);
-  _sock->write((const uint8_t*)ipstr,strlen_P(ipstr),true);
-  _sock->write((const uint8_t*)str2,7,false);
-  _sock->write((const uint8_t*)NodeID_str,strlen_P(NodeID_str),true);
-  _sock->write((const uint8_t*)str3,2,false);
-  _sock->write((const uint8_t*)ServicePath,ServicePath_len,true);
+  _sock.write_reset_length();
+  _sock.write_uint32(16+1+strl);
+  _sock.write_uint16(1);
+  _sock.write((const uint8_t*)"0",1,false);
+  _sock.write_uint16(rr_string_t);
+  _sock.write_uint16(0);
+  _sock.write_uint16(0);
+  _sock.write_uint32(strl);
+  _sock.write((const uint8_t*)STRCONST_URL1,STRCONST_URL1_LEN,true);
+  _sock.write((const uint8_t*)RobotRaconteurServer::ipstr,strlen(RobotRaconteurServer::ipstr),false);
+  _sock.write((const uint8_t*)STRCONST_URL2,STRCONST_URL2_LEN,true);
+  _sock.write((const uint8_t*)RobotRaconteurServer::NodeID_str,strlen_P(RobotRaconteurServer::NodeID_str),true);
+  _sock.write((const uint8_t*)STRCONST_URL4,STRCONST_URL4_LEN,true);
+  _sock.write((const uint8_t*)RobotRaconteurServer::ServicePath,RobotRaconteurServer::ServicePath_len,true);
+  _sock.send();
   
   //Write out the Attributes
-  _sock->write_uint32(16+10);
-  _sock->write_uint16(10);
-  _sock->write((const uint8_t*)STRCONST_Attributes,STRCONST_Attributes_LEN,true);
-  _sock->write_uint16(rr_dictionary_t);
-  _sock->write_uint16(0);
-  _sock->write_uint16(0);
-  _sock->write_uint32(0);
+  _sock.write_reset_length();
+  _sock.write_uint32(16+STRCONST_Attributes_LEN);
+  _sock.write_uint16(10);
+  _sock.write((const uint8_t*)STRCONST_Attributes,STRCONST_Attributes_LEN,true);
+  _sock.write_uint16(rr_dictionary_t);
+  _sock.write_uint16(0);
+  _sock.write_uint16(0);
+  _sock.write_uint32(0);
+  _sock.send();
   
-  
-  con->EndWriteMessageElement();
+  //EndWriteMessageElement();
 }
 
 char* RobotRaconteurServer::ServiceDef;

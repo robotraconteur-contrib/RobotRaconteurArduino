@@ -282,6 +282,8 @@ public:
   void SetMemberFormatMismatchError();
   void SetMemberNotFoundError();
   
+  void GetLocalNodeServices();
+
 protected:
   void read_messagelen();
   void process_message();
@@ -307,7 +309,7 @@ public:
   
   void SendAnnouncePacket();
   
-  static uint8_t NodeID[16];
+  static uint8_t* NodeID;
   static char* NodeID_str;
   static char ipstr[24];
   
@@ -323,10 +325,7 @@ public:
   static uint16_t ServicePath_len;
   uint16_t port;
   
-  static void GetLocalNodeServices(RobotRaconteurServerConnection* con);
-  
   EthernetServer ethernet_server;
-
 };
 
 void rr_function_call(RobotRaconteurServerConnection* con,char* MemberName,uint16_t ElementCount);
