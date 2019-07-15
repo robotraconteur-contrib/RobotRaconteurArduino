@@ -147,7 +147,7 @@ void rr_socket::read(uint8_t *buf, size_t size)
 	  rv = _client.read(buf+read_len,size-read_len);
 	  if (rv < 0)
 	  {
-		  Serial.println("Read error");
+		  //Serial.println("Read error");
 		  delay(1000);
 		abort();
 	  }
@@ -308,7 +308,7 @@ void rr_socket::write(const uint8_t* buf, size_t size, bool progmem)
 {
 	if (_write_pos + size > sizeof(_shared_write_buf))
 	{
-		Serial.println("Message too large! " );
+		//Serial.println("Message too large! " );
 		delay(1000);
 		abort();
 	}
@@ -597,7 +597,7 @@ void RobotRaconteurServerConnection::loop()
   		  }
   		  else
   		  {
-  			  Serial.println("Get a corrupted message");
+  			  //Serial.println("Get a corrupted message");
   			  _sock.close();
   			  return;
   		  }
@@ -1126,7 +1126,6 @@ void RobotRaconteurServerConnection::process_message()
           connected=true;
           remote_Endpoint=SenderEndpoint;
           memcpy(remote_NodeID,SenderNodeID,16);
-          Serial.println("Client connected");
         }
         else if (entry_EntryType==PropertyGetReq)
         {
@@ -1304,10 +1303,6 @@ void RobotRaconteurServerConnection::SetMessageElementError(uint16_t errcode, co
   _sock.write((uint8_t*)errmessage,errmessage_len,errmessage_progmem);
   EndWriteMessageElement();
   
-  Serial.print("error: ");
-  Serial.print(errcode);
-  Serial.write((const uint8_t*)entry_MemberName,entry_MemberName_len);
-  Serial.println();
   flush_message_entry();
 }
 
@@ -1534,8 +1529,6 @@ void RobotRaconteurServer::start()
 
 void RobotRaconteurServer::startudp()
 {
-  uint8_t broadcastip[]={0xFF,0xFF,0xFF,0xFF};
-
   Udp.begin(48653);
   //Udp.beginMulticast(broadcastip,48653);
 
@@ -1599,8 +1592,7 @@ static void udp_write_progmem(EthernetUDP& Udp, const void* ptr, size_t len)
 
 void RobotRaconteurServer::SendAnnouncePacket()
 {
-  
- Serial.println("Begin send UDP");
+
 
  //IPAddress broadcastip(0xFF,0xFF,0xFF,0xFF);
  IPAddress broadcastip(255,255,255,255);
