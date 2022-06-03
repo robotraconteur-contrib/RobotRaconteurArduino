@@ -1,6 +1,8 @@
+<p align="center"><img src="https://robotraconteurpublicfiles.s3.amazonaws.com/RRheader2.jpg"></p>
+
 # Robot Raconteur Arduino Demo
 
-This project is a demonstration of a Robot Raconteur service node implemented on an Arduino Uno (32 KB ROM, 2 KB RAM!) and a WizNet w5100 Ethernet Shield. The purpose of this project is to demonstrate that the Robot Raconteur protocol is simple enough to work with extremely limited devices.
+This project is a demonstration of a Robot Raconteur service node implemented on an Arduino Uno (32 KB ROM, 2 KB RAM!) and a WizNet w5100 Ethernet Shield. The purpose of this project is to demonstrate that the Robot Raconteur protocol is simple enough to work with extremely limited devices. This is a custom implementation of the protocol that does not use the available libraries.
 
 The following features are implemented:
 
