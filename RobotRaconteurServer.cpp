@@ -83,8 +83,8 @@ PROGMEM const char STRCONST_Robot_Raconteur_Node_Discovery_Packet[] = {"Robot Ra
 #define STRCONST_Robot_Raconteur_Node_Discovery_Packet_LEN 38
 PROGMEM const char STRCONST_URL1[] = {"rr+tcp://"};
 #define STRCONST_URL1_LEN 9
-PROGMEM const char STRCONST_URL2[]={":3456/?nodeid="};
-#define STRCONST_URL2_LEN 14
+PROGMEM const char STRCONST_URL2[]={":48653/?nodeid="};
+#define STRCONST_URL2_LEN 15
 PROGMEM const char STRCONST_URL3[]={"&service=RobotRaconteurServiceIndex\n"};
 #define STRCONST_URL3_LEN 36
 PROGMEM const char STRCONST_URL4[]={"&service="};
@@ -1343,95 +1343,6 @@ void RobotRaconteurServerConnection::flush_message_element()
   } 
 
 }
-
-/*void RobotRaconteurServerConnection::StartSendEvent(char* MemberName, uint8_t MemberName_len)
-{
-  _sock.write_reset_length();
-  */
-  //_sock.write((uint8_t*)/*"RRAC"*/ "",4);
-  /*send_message_length_pos=_sock.write_getpos();
-  _sock.write_uint32(0);
-  _sock.write_uint16(2);
-  send_message_header_length_pos=_sock.write_getpos();
-  _sock.write_uint16(0);
-  _sock.write(RobotRaconteurServer::NodeID,16);
-  _sock.write(remote_NodeID,16);
-  send_message_sender_endpoint_pos=_sock.write_getpos();
-  _sock.write_uint32(send_message_sender_endpoint);
-  _sock.write_uint32(remote_Endpoint);
-  _sock.write_uint16(0);//SenderNodeName
-  _sock.write_uint16(0);//ReceiverNodeName
-  _sock.write_uint16(0);//MetaData
-  send_message_entry_count_pos=_sock.write_getpos();
-  _sock.write_uint16(0);//EntryCount
-  _sock.write_uint16(0);//MessageID
-  _sock.write_uint16(0);//MessageResID
-  
-  send_entry_start_pos=_sock.write_getpos();
-  send_entry_length_pos=_sock.write_getpos();
-  _sock.write_uint32(0);
-  _sock.write_uint16(EventReq);
-  _sock.write_uint16(0);
-  //Serial.print("entry_SPL: ");
-  //Serial.println(entry_ServicePath_len);
-  _sock.write_uint16(RobotRaconteurServer::ServicePath_len);
-  _sock.write((const uint8_t*)RobotRaconteurServer::ServicePath,RobotRaconteurServer::ServicePath_len);
- 
-  _sock.write_uint16(MemberName_len);
-  for (int i=0; i<MemberName_len; i++) {_sock.write_uint8(MemberName[i]);}
-  _sock.write_uint32(0);
-  
-  send_entry_error_pos=_sock.write_getpos();
-  
-  _sock.write_uint16(0); //error
-  _sock.write_uint16(0); //metadata
-  
-  send_entry_element_count_pos=_sock.write_getpos();
-  _sock.write_uint16(0); //elementcount
-  
-  send_message_entry_count=0;
-  send_entry_element_count=0;
-   
-  
-}*/
-
-/*void RobotRaconteurServerConnection::EndSendEvent()
-{
-   uint16_t entrylen=_sock.write_length()-send_entry_start_pos;
-    //ptr=_sock.write_getptr();
-    _sock.write_setpos(send_entry_length_pos);
-    _sock.write_uint32(entrylen);
-    //_sock.write_setpos(_sock.write_length());
-    //_sock.write_setptr(ptr);
-    //Serial.print("send_elp: ");
-    //Serial.println(send_entry_length_pos);
-    //Serial.print("send_el: ");
-    //Serial.println(entrylen);
-    
-    _sock.write_setpos(send_entry_element_count_pos);
-    _sock.write_uint16(send_entry_element_count);
-    _sock.write_setpos(_sock.write_length());
-    //_sock.write_setptr(ptr);
-    
-    
-    send_message_entry_count++;
-  
-    uint16_t meslen=_sock.write_length();
-    //ptr=_sock.write_getptr();
-    _sock.write_setpos(send_message_length_pos);
-    _sock.write_uint32(meslen);
-    //_sock.write_setpos(_sock.write_length());
-    //_sock.write_setptr(ptr);
-    //Serial.print("Sent message len: ");
-    //Serial.println(meslen);
-    
-    //ptr=_sock.write_getptr();
-    _sock.write_setpos(send_message_entry_count_pos);
-    _sock.write_uint32(send_message_entry_count);
-    _sock.write_setpos(_sock.write_length());
-    //_sock.write_setptr(ptr);
-    _sock.send();
-}*/
 
 void RobotRaconteurServerConnection::SetMemberFormatMismatchError()
 {
