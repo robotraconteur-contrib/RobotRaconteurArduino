@@ -6,7 +6,7 @@ This project is a demonstration of a Robot Raconteur service node implemented on
 
 The following features are implemented:
 
-* Simple service with a single function `dimmer(uint16 val)`, which will set the intensity PWM output 9. This pin can be used with a normal LED PWM controlled light.
+* Simple service with a single function `dimmer(uint16 val)`, which will set the intensity PWM output 9. This pin can be used with a normal LED PWM controlled light. This service provides normal plug-and-play type support, so no a-priori type information is needed by a Python or MATLAB client.
 * TCP server that can accept Robot Raconteur TCP transport connections
 * WebSocket server capabilities, meaning that the TCP server can accept connections from web browsers using the built in WebSocket client.
 * Auto-discovery, which allows Robot Raconteur clients to automatically find the service on the network and control the light
